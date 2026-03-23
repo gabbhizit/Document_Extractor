@@ -80,20 +80,24 @@ def load_image_from_bytes(file_bytes: bytes) -> Image.Image:
     return image.convert("RGB")
 
 
-def preprocess_image(image: Image.Image, max_width: int = 1400) -> Image.Image:
+def preprocess_image(image: Image.Image, max_size: int = 1000) -> Image.Image:
     """
-    Resize image if wider than max_width, preserving aspect ratio.
+    Resize image so its longest side does not exceed max_size, preserving aspect ratio.
+
+    Capping the longest side (not just width) prevents portrait phone photos from
+    being resized to 1400×1867 — which is still large and slow for OCR.
 
     Args:
         image: PIL Image.
-        max_width: Maximum width in pixels.
+        max_size: Maximum pixels on the longest side.
 
     Returns:
         Resized PIL Image.
     """
-    if image.width > max_width:
-        ratio = max_width / image.width
-        new_size = (max_width, int(image.height * ratio))
+    longest = max(image.width, image.height)
+    if longest > max_size:
+        ratio = max_size / longest
+        new_size = (int(image.width * ratio), int(image.height * ratio))
         image = image.resize(new_size, Image.LANCZOS)
     return image
 
@@ -106,7 +110,7 @@ def correct_rotation(image: Image.Image) -> tuple[Image.Image, int]:
     Fast path — returns immediately (zero extra OCR passes) when ALL hold:
       1. mean OCR confidence ≥ 0.85
       2. ≥ 5 text lines detected
-      3. A document classification keyword is matched
+      (keyword check removed — confidence + line count is sufficient for orientation)
 
     Slow path — scores all 4 orientations:
       score = mean_conf × log1p(lines) + 0.2 if keyword matched
@@ -131,13 +135,14 @@ def correct_rotation(image: Image.Image) -> tuple[Image.Image, int]:
     bboxes_0 = result_0.get("bounding_boxes", [])
     text_0 = result_0["text"]
 
-    # Fast path: tight 3-gate check
+    # Fast path: 2-gate check (confidence + line count).
+    # Keyword check removed — it was too fragile (single OCR misread caused slow path).
+    # High confidence across ≥5 lines is sufficient proof of correct orientation.
     if bboxes_0:
         mean_conf_0 = sum(b["confidence"] for b in bboxes_0) / len(bboxes_0)
         if (
             mean_conf_0 >= FAST_PATH_MIN_CONFIDENCE
             and len(bboxes_0) >= FAST_PATH_MIN_LINES
-            and _keyword_hit(text_0)
         ):
             logger.debug("Rotation fast path: original orientation accepted (conf=%.3f, lines=%d).",
                          mean_conf_0, len(bboxes_0))

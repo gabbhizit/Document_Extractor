@@ -1,6 +1,10 @@
 """OCR service — version-aware for PaddleOCR 2.7.x (deployed) and 3.x (local)."""
 
 import logging
+import os
+
+# Must be set before paddleocr is imported — skips slow model-hoster connectivity check.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
 import numpy as np
 import paddleocr as _paddleocr_module
