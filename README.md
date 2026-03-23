@@ -139,13 +139,11 @@ curl -X POST "http://localhost:8000/api/v1/extract" \
 1. Push repo to GitHub
 2. Create a new **Web Service** on [Render](https://render.com)
 3. Set:
-   - **Build Command:** `apt-get install -y poppler-utils libgl1 && pip install --upgrade pip && pip install -r requirements.txt`
+   - **Build Command:** `pip install --upgrade pip && pip install -r requirements.txt`
    - **Start Command:** *(leave empty — `Procfile` handles it)*
 4. Add environment variables (see table below)
 
-> **Why `pip install --upgrade pip` is required:**
-> Render ships an older pip that has a known bug with `manylinux1` platform-tag
-> resolution. Upgrading pip first ensures `paddlepaddle==3.0.0` wheels are found correctly.
+> **Note:** `runtime.txt` pins Python to `3.10.13` — required for `paddlepaddle==2.5.2` compatibility.
 
 ### Streamlit UI (optional separate service)
 
