@@ -1,125 +1,77 @@
-"""OCR service — version-aware for PaddleOCR 2.7.x (deployed) and 3.x (local)."""
+"""OCR service — Google Cloud Vision API (DOCUMENT_TEXT_DETECTION)."""
 
+import base64
+import io
 import logging
 import os
 
-# Must be set before paddleocr is imported — skips slow model-hoster connectivity check.
-os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
-
-import numpy as np
-import paddleocr as _paddleocr_module
+import requests
 from PIL import Image
-from paddleocr import PaddleOCR
 
 logger = logging.getLogger(__name__)
-
-# Detect PaddleOCR major version once at import time.
-# 3.x removed use_angle_cls / show_log and changed result format to dict-based.
-# 2.7.x uses the classic list-based result format.
-_PADDLE_V3: bool = getattr(_paddleocr_module, "__version__", "2.0.0").startswith("3.")
-
-_ocr_instance = None
-
-
-def get_ocr() -> PaddleOCR:
-    """
-    Singleton PaddleOCR instance.
-    Branches on installed version so the same code works locally (3.x)
-    and on the deployed server (2.7.x).
-    """
-    global _ocr_instance
-    if _ocr_instance is None:
-        version_tag = "v3" if _PADDLE_V3 else "v2"
-        logger.info("Initialising PaddleOCR singleton (%s)...", version_tag)
-
-        if _PADDLE_V3:
-            # 3.x API — use_angle_cls and show_log are removed
-            _ocr_instance = PaddleOCR(
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                use_textline_orientation=False,
-                text_detection_model_name="PP-OCRv5_mobile_det",
-                text_recognition_model_name="en_PP-OCRv5_mobile_rec",
-            )
-        else:
-            # 2.7.x API
-            _ocr_instance = PaddleOCR(
-                use_angle_cls=False,
-                lang="en",
-                show_log=False,
-            )
-
-        logger.info("PaddleOCR singleton ready (%s).", version_tag)
-    return _ocr_instance
 
 
 def extract_text_from_image(image: Image.Image) -> dict:
     """
-    Run OCR on a PIL Image.
+    Extract text from a PIL Image using Google Cloud Vision API.
 
-    PaddleOCR 3.x result format  — list of dicts per page:
-        [{"rec_texts": [...], "rec_scores": [...], "rec_polys": [...]}, ...]
+    Uses DOCUMENT_TEXT_DETECTION — optimised for structured documents
+    (PAN cards, Aadhaar cards, study certificates). Google Vision handles
+    document orientation automatically so no local rotation correction is needed.
 
-    PaddleOCR 2.7.x result format — list of pages, each page is a list of lines:
-        [[[bbox, (text, confidence)], ...], ...]
+    Env var required: GOOGLE_VISION_API_KEY
 
     Returns:
         {
-            "text": str,                  # full concatenated text
-            "lines": list[str],           # individual text lines
-            "bounding_boxes": list[dict]  # [{text, bbox, confidence}]
+            "text": str,            # full extracted text
+            "lines": list[str],     # non-empty lines
+            "bounding_boxes": list  # empty — not needed downstream
         }
     """
-    ocr = get_ocr()
-    img_array = np.array(image.convert("RGB"))
+    api_key = os.getenv("GOOGLE_VISION_API_KEY", "")
+    if not api_key:
+        raise ValueError(
+            "GOOGLE_VISION_API_KEY not set. Add it to your .env file. "
+            "Get a key at: https://console.cloud.google.com → Cloud Vision API → Credentials."
+        )
+
+    # Convert PIL Image to base64-encoded PNG
+    buf = io.BytesIO()
+    image.convert("RGB").save(buf, format="PNG")
+    content = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    payload = {
+        "requests": [{
+            "image": {"content": content},
+            "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
+        }]
+    }
 
     try:
-        if _PADDLE_V3:
-            results = ocr.ocr(img_array)
-        else:
-            results = ocr.ocr(img_array, cls=False)
-    except Exception as e:
-        logger.error("PaddleOCR inference failed: %s", e)
+        resp = requests.post(
+            f"https://vision.googleapis.com/v1/images:annotate?key={api_key}",
+            json=payload,
+            timeout=30,
+        )
+        resp.raise_for_status()
+
+        response_data = resp.json()
+        annotation = response_data["responses"][0].get("fullTextAnnotation", {})
+        full_text = annotation.get("text", "")
+        lines = [ln for ln in full_text.splitlines() if ln.strip()]
+
+        logger.info("Vision API OCR: %d lines extracted (%d chars).", len(lines), len(full_text))
+        return {"text": full_text, "lines": lines, "bounding_boxes": []}
+
+    except requests.exceptions.Timeout:
+        logger.error("Vision API request timed out after 30s.")
         return {"text": "", "lines": [], "bounding_boxes": []}
-
-    lines = []
-    bounding_boxes = []
-
-    if _PADDLE_V3:
-        # 3.x: each element is a dict with rec_texts / rec_scores / rec_polys
-        for page in results:
-            rec_texts = page.get("rec_texts", [])
-            rec_scores = page.get("rec_scores", [])
-            rec_polys = page.get("rec_polys", [])
-            for i, text in enumerate(rec_texts):
-                if not text.strip():
-                    continue
-                conf = rec_scores[i] if i < len(rec_scores) else 0.0
-                bbox = rec_polys[i].tolist() if i < len(rec_polys) else []
-                lines.append(text)
-                bounding_boxes.append(
-                    {"text": text, "bbox": bbox, "confidence": round(float(conf), 4)}
-                )
-    else:
-        # 2.7.x: each element is a list of [bbox, (text, confidence)]
-        for page in results:
-            if page is None:
-                continue
-            for line in page:
-                text = line[1][0]
-                if not text.strip():
-                    continue
-                conf = float(line[1][1])
-                bbox = line[0]
-                lines.append(text)
-                bounding_boxes.append(
-                    {"text": text, "bbox": bbox, "confidence": round(conf, 4)}
-                )
-
-    logger.debug("OCR result: %d lines extracted.", len(lines))
-
-    return {
-        "text": "\n".join(lines),
-        "lines": lines,
-        "bounding_boxes": bounding_boxes,
-    }
+    except requests.exceptions.HTTPError as e:
+        logger.error("Vision API HTTP error: %s — %s", e, resp.text[:200])
+        return {"text": "", "lines": [], "bounding_boxes": []}
+    except requests.exceptions.RequestException as e:
+        logger.error("Vision API request failed: %s", e)
+        return {"text": "", "lines": [], "bounding_boxes": []}
+    except (KeyError, IndexError) as e:
+        logger.error("Vision API response parse error: %s", e)
+        return {"text": "", "lines": [], "bounding_boxes": []}

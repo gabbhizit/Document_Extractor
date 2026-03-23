@@ -7,17 +7,13 @@ python-multipart
 streamlit
 requests
 
-# ── OCR ───────────────────────────────────────────────────────────────────────
-paddleocr==2.7.0.3
-paddlepaddle==2.6.2
-numpy<2
-
 # ── PDF support ───────────────────────────────────────────────────────────────
 pdf2image
 pdfplumber
 
 # ── Image processing ──────────────────────────────────────────────────────────
 pillow
+opencv-python-headless
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 openai
@@ -25,6 +21,3 @@ openai
 # ── Config ────────────────────────────────────────────────────────────────────
 python-dotenv
 
-# ── Dependency conflict workaround (urllib3 / chardet version mismatch) ───────
-urllib3<2
-chardet<6

@@ -8,6 +8,7 @@ from app.services.ocr import extract_text_from_image
 from app.services.classifier import classify_document
 from app.services.extractor import extract_fields
 from app.services.validator import validate_and_score
+from app.services.cost_tracker import calculate_cost, GOOGLE_VISION_COST_USD, USD_TO_INR
 from app.utils.pdf_parser import pdf_to_images, extract_text_from_pdf
 from app.utils.image_utils import (
     load_image_from_bytes,
@@ -61,6 +62,7 @@ async def extract_document(file: UploadFile = File(...)) -> dict:
             )
 
         full_text = ""
+        ocr_page_count = 0  # tracks Vision API calls; 0 for PDF direct-text path
 
         # --- Step 1: For PDFs, try direct text extraction first (instant) ---
         if is_pdf:
@@ -97,6 +99,7 @@ async def extract_document(file: UploadFile = File(...)) -> dict:
                     logger.warning("Page %d — skew correction failed, using original: %s", idx + 1, exc)
 
                 ocr_result = extract_text_from_image(image)
+                ocr_page_count += 1
                 page_text = ocr_result["text"]
                 line_count = len(ocr_result["lines"])
                 logger.info("Page %d — OCR complete: %d lines, %d chars.", idx + 1, line_count, len(page_text))
@@ -127,11 +130,20 @@ async def extract_document(file: UploadFile = File(...)) -> dict:
 
         # --- Step 4: LLM Extraction ---
         extracted_data, cost_info = extract_fields(full_text, document_type)
+
+        # Augment cost with Google Vision charges (0 for PDF direct-text path)
+        vision_cost_usd = GOOGLE_VISION_COST_USD * ocr_page_count
+        cost_info["vision_api_calls"] = ocr_page_count
+        cost_info["vision_cost_inr"] = round(vision_cost_usd * USD_TO_INR, 4)
+        cost_info["cost_usd"] = round(cost_info.get("cost_usd", 0.0) + vision_cost_usd, 6)
+        cost_info["cost_inr"] = round(cost_info.get("cost_inr", 0.0) + vision_cost_usd * USD_TO_INR, 4)
+
         logger.info(
-            "Extraction complete — tokens in: %d, out: %d | cost: ₹%.5f",
+            "Extraction complete — tokens in: %d, out: %d | LLM+Vision cost: ₹%.4f (Vision calls: %d)",
             cost_info.get("input_tokens", 0),
             cost_info.get("output_tokens", 0),
             cost_info.get("cost_inr", 0.0),
+            ocr_page_count,
         )
 
         # --- Step 5: Validate + Score ---
