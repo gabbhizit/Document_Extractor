@@ -16,6 +16,12 @@ for i in $(seq 1 15); do
   sleep 2
 done
 
+# Fail fast if FastAPI never started — surfaces crash in Render logs immediately
+if ! curl -s http://localhost:8000/api/v1/health > /dev/null 2>&1; then
+  echo "ERROR: FastAPI failed to start after 30s. Check logs above. Aborting."
+  exit 1
+fi
+
 echo "Starting Streamlit UI on port ${PORT:-8501}..."
 streamlit run app/ui/streamlit_app.py \
   --server.port "${PORT:-8501}" \
