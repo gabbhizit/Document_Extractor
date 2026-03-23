@@ -7,18 +7,18 @@ FASTAPI_PID=$!
 
 # Wait for FastAPI to be ready before starting Streamlit
 echo "Waiting for FastAPI to be ready..."
-for i in $(seq 1 15); do
+for i in $(seq 1 40); do
   if curl -s http://localhost:8000/api/v1/health > /dev/null 2>&1; then
     echo "FastAPI is ready."
     break
   fi
-  echo "  attempt $i/15..."
-  sleep 2
+  echo "  attempt $i/40..."
+  sleep 5
 done
 
 # Fail fast if FastAPI never started — surfaces crash in Render logs immediately
 if ! curl -s http://localhost:8000/api/v1/health > /dev/null 2>&1; then
-  echo "ERROR: FastAPI failed to start after 30s. Check logs above. Aborting."
+  echo "ERROR: FastAPI failed to start after 200s. Check logs above. Aborting."
   exit 1
 fi
 
