@@ -10,8 +10,7 @@ requests
 # ── OCR ───────────────────────────────────────────────────────────────────────
 paddleocr==2.7.0.3
 paddlepaddle==2.6.2
-opencv-python-headless
-numpy
+numpy<2
 
 # ── PDF support ───────────────────────────────────────────────────────────────
 pdf2image
