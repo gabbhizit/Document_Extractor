@@ -1,0 +1,31 @@
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ── Demo UI ───────────────────────────────────────────────────────────────────
+streamlit
+requests
+
+# ── OCR ───────────────────────────────────────────────────────────────────────
+paddleocr
+paddlepaddle
+opencv-python
+numpy
+
+# ── PDF support ───────────────────────────────────────────────────────────────
+pdf2image
+pdfplumber
+
+# ── Image processing ──────────────────────────────────────────────────────────
+pillow
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
+openai
+
+# ── Config ────────────────────────────────────────────────────────────────────
+python-dotenv
+
+# ── Dependency conflict workaround (urllib3 / chardet version mismatch) ───────
+urllib3<2
+chardet<6
