@@ -9,7 +9,7 @@ requests
 
 # ── OCR ───────────────────────────────────────────────────────────────────────
 paddleocr
-paddlepaddle
+paddlepaddle==3.0.0
 opencv-python
 numpy
 

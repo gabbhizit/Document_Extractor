@@ -139,14 +139,13 @@ curl -X POST "http://localhost:8000/api/v1/extract" \
 1. Push repo to GitHub
 2. Create a new **Web Service** on [Render](https://render.com)
 3. Set:
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   - Or use the `Procfile` (Render picks it up automatically)
+   - **Build Command:** `apt-get install -y poppler-utils libgl1 && pip install --upgrade pip && pip install -r requirements.txt`
+   - **Start Command:** *(leave empty — `Procfile` handles it)*
 4. Add environment variables (see table below)
 
-> **Note:** Render's free tier runs on Linux. Add a build command to install poppler:
-> Under **Build Command** use:
-> `apt-get install -y poppler-utils libgl1 && pip install -r requirements.txt`
+> **Why `pip install --upgrade pip` is required:**
+> Render ships an older pip that has a known bug with `manylinux1` platform-tag
+> resolution. Upgrading pip first ensures `paddlepaddle==3.0.0` wheels are found correctly.
 
 ### Streamlit UI (optional separate service)
 
