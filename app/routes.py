@@ -8,12 +8,10 @@ from app.services.ocr import extract_text_from_image
 from app.services.classifier import classify_document
 from app.services.extractor import extract_fields
 from app.services.validator import validate_and_score
-from app.services.cost_tracker import calculate_cost, GOOGLE_VISION_COST_USD, USD_TO_INR
 from app.utils.pdf_parser import pdf_to_images, extract_text_from_pdf
 from app.utils.image_utils import (
     load_image_from_bytes,
     preprocess_image,
-    correct_rotation,
     correct_skew,
 )
 
@@ -82,15 +80,7 @@ async def extract_document(file: UploadFile = File(...)) -> dict:
             for idx, image in enumerate(images):
                 image = preprocess_image(image)
 
-                # --- Layer 1: correct cardinal rotation (90°/180°/270°) ---
-                try:
-                    image, rotation_applied = correct_rotation(image)
-                    if rotation_applied:
-                        logger.info("Page %d — rotation correction applied: %d°", idx + 1, rotation_applied)
-                except Exception as exc:
-                    logger.warning("Page %d — rotation correction failed, using original: %s", idx + 1, exc)
-
-                # --- Layer 2: correct slight skew (±0.5°–15°) ---
+                # --- Correct slight skew (±0.5°–15°) — Vision API handles rotation ---
                 try:
                     image, skew_applied = correct_skew(image)
                     if skew_applied:
@@ -129,14 +119,7 @@ async def extract_document(file: UploadFile = File(...)) -> dict:
             }
 
         # --- Step 4: LLM Extraction ---
-        extracted_data, cost_info = extract_fields(full_text, document_type)
-
-        # Augment cost with Google Vision charges (0 for PDF direct-text path)
-        vision_cost_usd = GOOGLE_VISION_COST_USD * ocr_page_count
-        cost_info["vision_api_calls"] = ocr_page_count
-        cost_info["vision_cost_inr"] = round(vision_cost_usd * USD_TO_INR, 4)
-        cost_info["cost_usd"] = round(cost_info.get("cost_usd", 0.0) + vision_cost_usd, 6)
-        cost_info["cost_inr"] = round(cost_info.get("cost_inr", 0.0) + vision_cost_usd * USD_TO_INR, 4)
+        extracted_data, cost_info = extract_fields(full_text, document_type, vision_api_calls=ocr_page_count)
 
         logger.info(
             "Extraction complete — tokens in: %d, out: %d | LLM+Vision cost: ₹%.4f (Vision calls: %d)",

@@ -1,7 +1,6 @@
-"""Image loading, preprocessing, rotation correction, and skew correction utilities."""
+"""Image loading, preprocessing, and skew correction utilities."""
 
 import io
-import math
 import logging
 import os
 
@@ -10,58 +9,6 @@ import numpy as np
 from PIL import Image
 
 logger = logging.getLogger(__name__)
-
-# ── Layer 1 constants ────────────────────────────────────────────────────────
-FAST_PATH_MIN_CONFIDENCE = 0.85
-FAST_PATH_MIN_LINES = 5
-KEYWORD_BOOST = 0.2
-
-# All classifier keywords — used for fast-path orientation gate
-_PAN_KEYWORDS = {"INCOME TAX DEPARTMENT", "PERMANENT ACCOUNT NUMBER"}
-_AADHAAR_KEYWORDS = {"GOVERNMENT OF INDIA", "UIDAI", "AADHAAR", "AADHAR"}
-_STUDY_KEYWORDS = {
-    "CERTIFICATE", "SCHOOL", "COLLEGE", "UNIVERSITY", "CBSE",
-    "SSC", "HSC", "ICSE", "DEGREE", "DIPLOMA",
-    "BOARD OF INTERMEDIATE", "MATRICULATION",
-}
-
-
-# ── Internal helpers ──────────────────────────────────────────────────────────
-
-def _keyword_hit(text: str) -> bool:
-    """
-    Return True if OCR text contains any strong document classification keyword.
-
-    PAN / Aadhaar: 1 keyword match is sufficient (highly specific strings).
-    Study Certificate: requires 2+ keyword matches (same threshold as classifier).
-    """
-    upper = text.upper()
-    if any(kw in upper for kw in _PAN_KEYWORDS):
-        return True
-    if any(kw in upper for kw in _AADHAAR_KEYWORDS):
-        return True
-    study_hits = sum(1 for kw in _STUDY_KEYWORDS if kw in upper)
-    return study_hits >= 2
-
-
-def _composite_score(bounding_boxes: list[dict], text: str) -> float:
-    """
-    Composite orientation score for a set of OCR bounding boxes.
-
-        score = mean(confidences) × log1p(line_count) + keyword_boost
-
-    - mean confidence captures OCR quality  (garbage tokens score low)
-    - log1p(line_count) captures quantity   (diminishing returns above ~20 lines)
-    - +0.2 keyword_boost decisively favours semantically correct orientations
-    """
-    if not bounding_boxes:
-        return 0.0
-    confs = [b["confidence"] for b in bounding_boxes]
-    mean_conf = sum(confs) / len(confs)
-    score = mean_conf * math.log1p(len(bounding_boxes))
-    if _keyword_hit(text):
-        score += KEYWORD_BOOST
-    return score
 
 
 # ── Public utilities ──────────────────────────────────────────────────────────
@@ -101,72 +48,6 @@ def preprocess_image(image: Image.Image, max_size: int = 1000) -> Image.Image:
         image = image.resize(new_size, Image.LANCZOS)
     return image
 
-
-def correct_rotation(image: Image.Image) -> tuple[Image.Image, int]:
-    """
-    Detect and correct cardinal rotation (0°, 90°, 180°, 270°) via
-    confidence-scored OCR voting.
-
-    Fast path — returns immediately (zero extra OCR passes) when ALL hold:
-      1. mean OCR confidence ≥ 0.85
-      2. ≥ 5 text lines detected
-      (keyword check removed — confidence + line count is sufficient for orientation)
-
-    Slow path — scores all 4 orientations:
-      score = mean_conf × log1p(lines) + 0.2 if keyword matched
-      Picks the orientation with the highest composite score.
-
-    Set SKIP_ORIENTATION_CORRECTION=true in .env to bypass entirely.
-
-    Args:
-        image: PIL Image (RGB), already preprocessed/resized.
-
-    Returns:
-        (corrected_image, rotation_applied_degrees)  — rotation ∈ {0, 90, 180, 270}
-    """
-    if os.getenv("SKIP_ORIENTATION_CORRECTION", "false").lower() == "true":
-        return image, 0
-
-    # Lazy import — prevents circular dependency at module load time
-    from app.services.ocr import extract_text_from_image  # noqa: PLC0415
-
-    # ── Pass 0: original orientation ──────────────────────────────────────────
-    result_0 = extract_text_from_image(image)
-    bboxes_0 = result_0.get("bounding_boxes", [])
-    text_0 = result_0["text"]
-
-    # Fast path: 2-gate check (confidence + line count).
-    # Keyword check removed — it was too fragile (single OCR misread caused slow path).
-    # High confidence across ≥5 lines is sufficient proof of correct orientation.
-    if bboxes_0:
-        mean_conf_0 = sum(b["confidence"] for b in bboxes_0) / len(bboxes_0)
-        if (
-            mean_conf_0 >= FAST_PATH_MIN_CONFIDENCE
-            and len(bboxes_0) >= FAST_PATH_MIN_LINES
-        ):
-            logger.debug("Rotation fast path: original orientation accepted (conf=%.3f, lines=%d).",
-                         mean_conf_0, len(bboxes_0))
-            return image, 0
-
-    # ── Slow path: score all 4 rotations ─────────────────────────────────────
-    best_score = _composite_score(bboxes_0, text_0)
-    best_rotation = 0
-    best_image = image
-
-    for angle in [90, 180, 270]:
-        rotated = image.rotate(angle, expand=True)
-        result = extract_text_from_image(rotated)
-        score = _composite_score(result.get("bounding_boxes", []), result["text"])
-        logger.debug("Rotation %d° composite score: %.4f", angle, score)
-        if score > best_score:
-            best_score = score
-            best_rotation = angle
-            best_image = rotated
-
-    if best_rotation != 0:
-        logger.info("Rotation correction applied: %d°", best_rotation)
-
-    return best_image, best_rotation
 
 
 def correct_skew(image: Image.Image) -> tuple[Image.Image, float]:

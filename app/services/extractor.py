@@ -34,13 +34,14 @@ PROMPTS = {
 }
 
 
-def extract_fields(text: str, document_type: str) -> tuple[dict, dict]:
+def extract_fields(text: str, document_type: str, vision_api_calls: int = 0) -> tuple[dict, dict]:
     """
     Extract structured fields from OCR text using OpenAI LLM.
 
     Args:
         text: OCR-extracted text.
         document_type: One of PAN, AADHAAR, STUDY_CERTIFICATE.
+        vision_api_calls: Number of Google Vision API calls made upstream (0 for PDF direct-text).
 
     Returns:
         (extracted_data: dict, cost_info: dict)
@@ -94,7 +95,7 @@ def extract_fields(text: str, document_type: str) -> tuple[dict, dict]:
         "prompt_tokens": response.usage.prompt_tokens,
         "completion_tokens": response.usage.completion_tokens,
     }
-    cost_info = calculate_cost(usage)
+    cost_info = calculate_cost(usage, vision_api_calls=vision_api_calls)
 
     logger.info(
         "OpenAI response — in: %d tokens | out: %d tokens | cost: $%.6f (₹%.5f)",
