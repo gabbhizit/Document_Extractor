@@ -5,6 +5,7 @@ import time
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Allow API base URL to be set via env var for deployed environments
 API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
@@ -14,6 +15,15 @@ st.set_page_config(
     page_icon="📄",
     layout="centered",
 )
+
+# Lightweight visitor tracking — GoatCounter (no cookies, no user data collected)
+GOATCOUNTER_SITE = os.getenv("GOATCOUNTER_SITE", "")
+if GOATCOUNTER_SITE:
+    components.html(
+        f'<script data-goatcounter="https://{GOATCOUNTER_SITE}.goatcounter.com/count"'
+        ' async src="//gc.zgo.at/count.js"></script>',
+        height=0,
+    )
 
 st.title("📄 Indian Document Extractor")
 st.caption("Supports PAN Card · Aadhaar Card · Study Certificates")
